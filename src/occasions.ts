@@ -88,3 +88,16 @@ export function buildRevisionPrompt(instruction: string): string {
     "Do not add any text, letters, numbers, logos or watermarks.",
   ].join(" ");
 }
+
+// 사장님이 말로 적은 컨셉(한국어)으로 장면을 만드는 프롬프트. 카카오 챗봇에서 쓴다.
+export function buildConceptPrompt(concept: string): string {
+  return [
+    "Edit this photo into a social media notice image for a dog cafe.",
+    "Keep the dog in the photo exactly as it is: same breed, face, fur color, markings and body shape. Do not replace it with a different dog.",
+    `Apply this concept requested by the cafe owner (written in Korean): ${concept || "밝고 깔끔한 애견카페 분위기"}.`,
+    "Photo-realistic, warm and inviting lighting.",
+    "The image will be center-cropped to a 4:5 portrait, so keep the dog fully inside the middle of the frame with space above its head.",
+    "Keep the bottom 30% of the image calm and uncluttered so text can be added later.",
+    "Do not add any text, letters, numbers, logos or watermarks, even if the request mentions notice text.",
+  ].join(" ");
+}
