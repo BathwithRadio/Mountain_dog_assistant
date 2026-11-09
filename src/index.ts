@@ -3,7 +3,9 @@ import { createNotice, type Env, type NoticeMeta, NoticeNotFoundError, reviseNot
 import { OCCASIONS } from "./occasions";
 import { MAX_SUBTITLE_LINES, MAX_TITLE_LINES, splitLines } from "./overlay";
 import { uploadPage } from "./page";
-import { kakao } from "./kakao";
+import { handleKakaoJobs, kakao, type KakaoJob } from "./kakao";
+import { kakaoOAuth } from "./kakaoMemo";
+import { runReminderAgent } from "./reminder";
 
 const MAX_VARIANTS = 3;
 
@@ -85,7 +87,25 @@ app.post("/api/notices/:id/revise", async (c) => {
 });
 
 //카카오 파트
+app.route("/kakao/oauth", kakaoOAuth);
 app.route("/kakao", kakao);
+
+// 안내 메시지의 "챗봇 열기" 버튼이 거쳐 가는 주소. 챗봇 채팅방으로 보낸다.
+app.get("/go/chat", (c) => c.redirect(c.env.KAKAO_CHANNEL_CHAT_URL || "https://pf.kakao.com"));
+
+// 기념일 안내 에이전트를 지금 바로 실행한다. (시험용)
+// today=YYYY-MM-DD로 날짜를 바꿔 볼 수 있다. dryRun=on이면 보내지 않고, dryRun=off면 REMINDER_DRY_RUN과 상관없이 실제로 보낸다.
+app.post("/api/reminders/run", async (c) => {
+  const form = await c.req.parseBody();
+  const denied = checkToken(c.env, form.token);
+  if (denied) return c.json({ error: denied.error }, denied.status);
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(form.today ?? "")) ? String(form.today) : undefined;
+  try {
+    return c.json(await runReminderAgent(c.env, { today, dryRun: form.dryRun === "on" ? true : form.dryRun === "off" ? false : undefined }));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
+  }
+});
 
 // R2에 저장된 공지 이미지를 보여 준다. 카톡 발송 시 이 주소를 그대로 쓴다.
 // 폰트 파일(fonts/) 등 다른 파일이 공개되지 않도록 notices/만 내려준다.
@@ -102,4 +122,12 @@ app.get("/images/*", async (c) => {
   });
 });
 
-export default app;
+// fetch는 웹 화면과 카카오 스킬, queue는 카카오 작업(이미지 만들기·고치기),
+// scheduled는 매일 아침 기념일 안내 에이전트를 실행한다.
+export default {
+  fetch: app.fetch,
+  queue: handleKakaoJobs,
+  scheduled: (_event, env, ctx) => {
+    ctx.waitUntil(runReminderAgent(env).catch((err) => console.log("reminder failed", err)));
+  },
+} satisfies ExportedHandler<Env, KakaoJob>;

@@ -37,6 +37,7 @@ export async function overlayText(
   text: OverlayText,
   fonts: OverlayFonts,
   layout: Layout = DEFAULT_LAYOUT,
+  width?: number, // 미리보기용
 ): Promise<Uint8Array> {
   wasmReady ??= initWasm(resvgWasm);
   await wasmReady;
@@ -44,6 +45,7 @@ export async function overlayText(
   const svg = buildSvg(image, mimeType, text, fonts, layout);
   const fontBuffers = fonts.title === fonts.body ? [fonts.body.data] : [fonts.title.data, fonts.body.data];
   const resvg = new Resvg(svg, {
+    fitTo: width ? { mode: "width", value: width } : {mode: "original"},
     font: { fontBuffers, defaultFontFamily: fonts.body.family, loadSystemFonts: false },
   });
   const rendered = resvg.render();

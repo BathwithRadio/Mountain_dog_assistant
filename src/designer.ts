@@ -1,6 +1,5 @@
-// 디자인 에이전트: 배경 이미지를 보고 제목 폰트·글자 위치·글자색을 고른다.
-// 고른 값으로 실제 렌더링한 결과를 다시 보여 주고, 스스로 확인한 뒤 확정한다.
-// OpenAI Responses API의 함수 호출(도구)과 이미지 입력을 쓴다.
+// 디자인 에이전트: 서버가 글자 배치 후보 3장을 실제로 그려 보여 주고,
+// 에이전트는 그 결과를 보고 가장 좋은 후보와 제목 폰트를 한 번에 고른다.
 
 import type { LoadedFont } from "./fonts";
 import { overlayText, type Layout, type OverlayText } from "./overlay";
@@ -8,46 +7,44 @@ import { overlayText, type Layout, type OverlayText } from "./overlay";
 export type TitleFont = "rounded" | "bold" | "basic";
 export type Design = Layout & { titleFont: TitleFont; reason: string };
 
-const MAX_TURNS = 3; // 미리보기 최대 2번 + 확정 1번
-const TIMEOUT_MS = 12_000; // 카카오 콜백 시간 안에 끝나도록 전체 제한
+const TIMEOUT_MS = 15_000;
+const PREVIEW_WIDTH = 432; // 미리보기는 작게 그려 빠르게 보낸다
 
-const DESIGN_SCHEMA = {
-  type: "object",
-  properties: {
-    titleFont: { type: "string", enum: ["rounded", "bold", "basic"] },
-    position: { type: "string", enum: ["top", "bottom"] },
-    textColor: { type: "string", enum: ["white", "dark"] },
-    reason: { type: "string", description: "이렇게 고른 이유 한 줄" },
-  },
-  required: ["titleFont", "position", "textColor", "reason"],
-  additionalProperties: false,
+// 미리보기 후보 3장. 이미지 생성 때 아래쪽을 비워 두라고 하므로 아래쪽은 흰 글씨·어두운 글씨 둘 다,
+// 위쪽은 배경이 복잡한 경우가 많아 그림자를 까는 흰 글씨만 둔다.
+const CANDIDATES: Record<string, Layout> = {
+  A: { position: "bottom", textColor: "white" },
+  B: { position: "bottom", textColor: "dark" },
+  C: { position: "top", textColor: "white" },
 };
 
 const TOOLS = [
   {
     type: "function",
-    name: "render_preview",
-    description: "고른 디자인으로 글자를 얹은 미리보기를 만든다. 결과 이미지를 다음 메시지로 보여 준다.",
-    parameters: DESIGN_SCHEMA,
-    strict: true,
-  },
-  {
-    type: "function",
-    name: "finalize",
-    description: "미리보기가 괜찮을 때 그 디자인으로 확정한다.",
-    parameters: DESIGN_SCHEMA,
+    name: "choose_design",
+    description: "미리보기 후보 중 가장 좋은 것과 제목 폰트를 고른다.",
+    parameters: {
+      type: "object",
+      properties: {
+        candidate: { type: "string", enum: Object.keys(CANDIDATES) },
+        titleFont: { type: "string", enum: ["rounded", "bold"] }, // 기본 폰트는 고르지 않는다
+        reason: { type: "string", description: "이렇게 고른 이유 한 줄" },
+      },
+      required: ["candidate", "titleFont", "reason"],
+      additionalProperties: false,
+    },
     strict: true,
   },
 ];
 
-const INSTRUCTIONS = `너는 애견카페 공지 이미지의 디자이너다. 배경 이미지 위에 한글 제목과 안내 문구를 얹을 디자인을 고른다.
-- 강아지 얼굴과 몸을 글자가 가리면 안 된다. 배경이 단순하고 비어 있는 쪽(top 또는 bottom)을 고른다.
-- 글자색은 배경과 대비가 큰 쪽을 고른다. 밝은 배경이면 dark, 어둡거나 복잡하면 white.
-- 제목 폰트: rounded는 귀엽고 말랑한 분위기, bold는 또렷하고 단정한 분위기, basic은 무난한 기본.
-- 먼저 render_preview로 미리보기를 만들고, 결과를 보고 괜찮으면 같은 값으로 finalize를 부른다.
-- 글자가 강아지를 가리거나 잘 안 읽히면 값을 바꿔 render_preview를 한 번 더 부른다.`;
+const INSTRUCTIONS = `너는 애견카페 공지 이미지의 디자이너다. 같은 배경에 글자를 다르게 얹은 미리보기 후보들을 보고 가장 좋은 것을 고른다.
+- 글자가 강아지 얼굴과 몸을 가리는 후보는 고르지 않는다.
+- 글자가 배경과 대비가 커서 가장 또렷하게 읽히는 후보를 고른다.
+- 제목 폰트는 rounded와 bold 중 컨셉과 분위기에 맞는 것을 고른다: rounded는 귀엽고 말랑하고 장난스러운 분위기(기념일, 놀이, 만화풍 등), bold는 또렷하고 단정한 분위기(영업 안내, 휴무, 가격 등).
+- 미리보기는 모두 같은 폰트로 그려져 있으니, 폰트는 분위기만 보고 고른다.
+- reason은 한국어 한 문장으로 쓰고, 위치와 폰트를 고른 이유를 모두 담는다.`;
 
-type ResponseOutput = { type: string; name?: string; call_id?: string; arguments?: string };
+type ResponseOutput = { type: string; name?: string; arguments?: string };
 
 async function callResponses(apiKey: string, body: unknown, signal: AbortSignal) {
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -56,23 +53,10 @@ async function callResponses(apiKey: string, body: unknown, signal: AbortSignal)
     body: JSON.stringify(body),
     signal,
   });
-  const json = (await res.json()) as { id: string; output: ResponseOutput[]; error?: { message: string } };
+  const json = (await res.json()) as { output: ResponseOutput[]; error?: { message: string } };
   if (!res.ok) throw new Error(json.error?.message ?? `OpenAI 오류 (${res.status})`);
   return json;
 }
-
-function parseDesign(args: string | undefined): Design | undefined {
-  try {
-    const d = JSON.parse(args ?? "");
-    if (!["rounded", "bold", "basic"].includes(d.titleFont)) return;
-    if (!["top", "bottom"].includes(d.position)) return;
-    if (!["white", "dark"].includes(d.textColor)) return;
-    return { titleFont: d.titleFont, position: d.position, textColor: d.textColor, reason: String(d.reason ?? "") };
-  } catch {}
-}
-
-const sameLayout = (a: Design, b: Design) =>
-  a.titleFont === b.titleFont && a.position === b.position && a.textColor === b.textColor;
 
 const dataUrl = (data: Uint8Array, mimeType: string) =>
   `data:${mimeType};base64,${Buffer.from(data).toString("base64")}`;
@@ -82,87 +66,65 @@ export async function designNotice(opts: {
   model: string;
   image: { data: Uint8Array; mimeType: string };
   text: OverlayText;
-  concept?: string; // 카톡에서 사장님이 적은 컨셉. 폰트 분위기를 고를 때 참고한다.
+  concept?: string;
   fonts: Record<TitleFont, LoadedFont>;
   fallback: Design;
 }): Promise<{ design: Design; png: Uint8Array }> {
-  const render = (d: Design) =>
+  const render = (d: Layout & { titleFont: TitleFont }, width?: number) =>
     overlayText(
       opts.image.data,
       opts.image.mimeType,
       opts.text,
       { title: opts.fonts[d.titleFont], body: opts.fonts.basic },
       d,
+      width,
     );
 
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
-  let last: { design: Design; png: Uint8Array } | undefined;
-  let previousId: string | undefined;
-  let input: unknown[] = [
-    {
-      role: "user",
-      content: [
-        {
-          type: "input_text",
-          text: `${opts.concept ? `컨셉: ${opts.concept}\n` : ""}제목: ${opts.text.title || "(없음)"}\n안내 문구: ${opts.text.subtitle ?? "(없음)"}\n추천 폰트: ${opts.fallback.titleFont}\n아래는 글자를 얹을 배경 이미지다.`,
-        },
-        { type: "input_image", image_url: dataUrl(opts.image.data, opts.image.mimeType), detail: "low" },
-      ],
-    },
-  ];
-
   try {
-    for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const started = Date.now();
-      const res = await callResponses(
-        opts.apiKey,
-        {
-          model: opts.model,
-          instructions: INSTRUCTIONS,
-          input,
-          tools: TOOLS,
-          tool_choice: "required", // 매번 도구를 부르게 한다
-          parallel_tool_calls: false,
-          reasoning: { effort: "minimal" }, // 빠르게 답하도록 생각을 최소로. 추론 모델이 아니면 이 줄을 지운다
-          previous_response_id: previousId,
-        },
-        signal,
-      );
-      previousId = res.id;
-      console.log("designer turn", turn + 1, `${Date.now() - started}ms`);
-
-      const call = res.output.find((o) => o.type === "function_call");
-      if (!call) break;
-      const design = parseDesign(call.arguments);
-      if (!design) {
-        input = [{ type: "function_call_output", call_id: call.call_id, output: "값이 잘못됐어요. 다시 골라 주세요." }];
-        continue;
-      }
-      console.log("designer", call.name, JSON.stringify(design));
-
-      if (call.name === "finalize") {
-        if (last && sameLayout(last.design, design)) return { design, png: last.png };
-        return { design, png: await render(design) };
-      }
-
-      // render_preview: 실제로 그려서 결과를 에이전트에게 보여 준다.
-      const png = await render(design);
-      last = { design, png };
-      input = [
-        { type: "function_call_output", call_id: call.call_id, output: "미리보기를 만들었어요. 다음 이미지를 확인하세요." },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: "이 미리보기가 괜찮으면 finalize, 아니면 값을 바꿔 render_preview를 다시 부르세요." },
-            { type: "input_image", image_url: dataUrl(png, "image/png"), detail: "low" },
-          ],
-        },
-      ];
+    const started = Date.now();
+    // 1. 후보 3장을 실제로 그린다.
+    const labels = Object.keys(CANDIDATES);
+    const previews: Uint8Array[] = [];
+    for (const label of labels) {
+      previews.push(await render({ ...CANDIDATES[label], titleFont: opts.fallback.titleFont }, PREVIEW_WIDTH));
     }
-  } catch (err) {
-    // 시간 초과나 API 오류여도 공지는 만들어야 하므로 아래 대체안으로 넘어간다.
-    console.log("designer failed", err instanceof Error ? err.message : err);
-  }
 
-  return last ?? { design: opts.fallback, png: await render(opts.fallback) };
+    // 2. 에이전트가 후보들을 보고 한 번에 고른다.
+    const content: unknown[] = [
+      {
+        type: "input_text",
+        text: `${opts.concept ? `컨셉: ${opts.concept}\n` : ""}제목: ${opts.text.title}\n안내 문구: ${opts.text.subtitle ?? "(없음)"}`,
+      },
+    ];
+    labels.forEach((label, i) => {
+      const c = CANDIDATES[label];
+      content.push({ type: "input_text", text: `후보 ${label}: 위치=${c.position}, 글자색=${c.textColor}` });
+      content.push({ type: "input_image", image_url: dataUrl(previews[i], "image/png"), detail: "low" });
+    });
+
+    const res = await callResponses(
+      opts.apiKey,
+      {
+        model: opts.model,
+        instructions: INSTRUCTIONS,
+        input: [{ role: "user", content }],
+        tools: TOOLS,
+        tool_choice: "required",
+        reasoning: { effort: "minimal" }, // 추론 모델이 아니면 이 줄을 지운다
+      },
+      AbortSignal.timeout(TIMEOUT_MS),
+    );
+    const call = res.output.find((o) => o.type === "function_call");
+    const choice = JSON.parse(call?.arguments ?? "{}");
+    const layout = CANDIDATES[choice.candidate];
+    if (!layout || !["rounded", "bold"].includes(choice.titleFont)) throw new Error("잘못된 선택");
+
+    const design: Design = { ...layout, titleFont: choice.titleFont, reason: String(choice.reason ?? "") };
+    console.log("designer", `${Date.now() - started}ms`, JSON.stringify(design));
+    // 3. 고른 디자인으로 원래 크기의 완성본을 그린다.
+    return { design, png: await render(design) };
+  } catch (err) {
+    console.log("designer failed", err instanceof Error ? err.message : err);
+    return { design: opts.fallback, png: await render(opts.fallback) };
+  }
 }

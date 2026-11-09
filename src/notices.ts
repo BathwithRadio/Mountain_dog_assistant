@@ -5,6 +5,7 @@ import { buildConceptPrompt, buildPrompt, buildRevisionPrompt, OCCASIONS } from 
 import { generateImage } from "./openai";
 import { designNotice, type Design, type TitleFont } from "./designer";
 import { DEFAULT_LAYOUT, overlayText } from "./overlay";
+import type { KakaoJob } from "./kakao";
 
 export type Env = {
   BUCKET: R2Bucket;
@@ -16,6 +17,15 @@ export type Env = {
   KAKAO_SKILL_SECRET: string;
   KAKAO_ALLOWED_USER_IDS: string;
   OPENAI_DESIGN_MODEL: string;
+  JOBS: Queue<KakaoJob>;
+  // 기념일 안내 (카카오 나에게 보내기)
+  PUBLIC_ORIGIN: string; // 이 서버 주소. 카카오 로그인 Redirect URI와 메시지 링크에 쓴다
+  KAKAO_CHANNEL_CHAT_URL: string; // 챗봇 채널 채팅방 주소 (예: http://pf.kakao.com/_xxxx/chat)
+  KAKAO_REST_API_KEY: string; // secret
+  KAKAO_CLIENT_SECRET?: string; // secret. 콘솔에서 Client Secret을 켰을 때만
+  REMINDER_INVITE_CODE: string; // secret. 부모님께 드리는 연결 링크의 초대 코드
+  SPCDE_API_KEY?: string; // secret. 공공데이터포털 특일 정보 API (설날·추석 날짜)
+  REMINDER_DRY_RUN: string; // "true"면 안내를 실제로 보내지 않고 로그만 남긴다
 };
 
 // 시안을 다시 그리거나 문구를 다시 얹을 때 필요한 정보. notices/{id}/meta.json에 저장한다.
@@ -39,7 +49,8 @@ async function loadFonts(env: Env, occasionKey: string | undefined): Promise<Fon
   ];
   return {
     fonts: { basic, rounded: rounded ?? basic, bold: bold ?? basic },
-    suggested: (occasionKey && OCCASIONS[occasionKey]?.titleFont) || "basic",
+    // 제목에는 기본 폰트를 쓰지 않는다. 기념일 정보가 없으면(카톡 컨셉) 둥근 폰트를 기본으로 한다.
+    suggested: (occasionKey && OCCASIONS[occasionKey]?.titleFont) || "rounded",
     notes,
   };
 }
