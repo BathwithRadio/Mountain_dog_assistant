@@ -34,8 +34,6 @@ export const FIXED_HOLIDAYS: FixedHoliday[] = [
   { key: "halloween", name: "할로윈", monthDay: "10-31", rule: "judge" },
   { key: "mungmungday", name: "개의 날(멍멍멍 데이)", monthDay: "11-01", rule: "judge" },
 
-  // 시험용: 11월 10일 오전 9시 크론에서 안내가 오는지 확인한 뒤 지운다.
-  { key: "test", name: "테스트 기념일(시험용)", monthDay: "11-13", rule: "must" },
 ];
 
 // 공휴일은 공공데이터포털 특일 정보 API에서 받는다. (SPCDE_API_KEY가 있을 때만)

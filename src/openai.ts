@@ -18,9 +18,10 @@ export async function generateImage(opts: {
   form.append("model", opts.model);
   form.append("prompt", opts.prompt);
   form.append("image[]", new Blob([opts.photo], { type: opts.photoMimeType }), "photo");
-  // 인스타 피드에 쓸 세로 이미지
-  form.append("size", "1024x1536");
-  form.append("quality", "low");
+  // 원본 사진 비율에 가깝게 만든다. 세로로 고정하면 얼굴 사진의 위아래를 새로 그려 넣게 된다.
+  // (마지막에 글자를 얹을 때 4:5로 가운데를 잘라낸다)
+  form.append("size", "auto");
+  form.append("quality", "medium");
   // gpt-image-2는 input_fidelity 옵션을 받지 않는다. 원본 유지는 프롬프트로 요청한다.
 
   const res = await fetch("https://api.openai.com/v1/images/edits", {

@@ -62,17 +62,27 @@ const VARIANT_STYLES = [
   "bright, cheerful and colorful, playful composition",
 ];
 
+// 모든 이미지 프롬프트에 공통으로 넣는 규칙.
+// 원본 사진의 구도를 지키고, 요청하지 않은 것(특히 보이지 않던 몸)을 지어내지 않게 한다.
+// 글자 자리는 디자인 에이전트가 위·아래 중 빈 곳을 골라 정하므로, 이미지에서 미리 비워 두라고 하지 않는다.
+const KEEP_ORIGINAL = [
+  "Keep the dog exactly as it is: same breed, face, fur color, markings, expression and pose. Do not replace it with a different dog.",
+  "Keep the original framing and crop of the photo. Show only the parts of the dog that are visible in the original photo:",
+  "if it is a close-up of the face, keep it a face close-up and do not draw the body, legs or paws. Do not zoom out or extend the scene beyond the original frame.",
+  "Change only what is requested (outfit, accessories, background, art style). Do not add other objects, animals or people that were not requested.",
+  "If an outfit is requested but the dog's body is not visible, show only the part that fits in the frame (such as the collar area) or use headwear instead.",
+  "The final image will be cropped to a 4:5 portrait around the center, so keep the dog's face near the center.",
+  "Do not add any text, letters, numbers, logos or watermarks, even if the request mentions notice text.",
+].join(" ");
+
 export function buildPrompt(occasion: Occasion, variant: number, extra?: string): string {
   const style = VARIANT_STYLES[variant % VARIANT_STYLES.length];
   return [
     "Edit this photo into a social media notice image for a dog cafe.",
-    "Keep the dog in the photo exactly as it is: same breed, face, fur color, markings and body shape. Do not replace it with a different dog.",
-    `Place the dog in ${occasion.scene}.`,
+    `Change the background and decorations to ${occasion.scene}.`,
     `Style: ${style}.`,
-    "The image will be center-cropped to a 4:5 portrait, so keep the dog fully inside the middle of the frame with space above its head.",
-    "Keep the bottom 30% of the image calm and uncluttered so text can be added later.",
-    "Do not add any text, letters, numbers, logos or watermarks.",
     extra ? `Additional request: ${extra}` : "",
+    KEEP_ORIGINAL,
   ]
     .filter(Boolean)
     .join(" ");
@@ -82,10 +92,8 @@ export function buildPrompt(occasion: Occasion, variant: number, extra?: string)
 export function buildRevisionPrompt(instruction: string): string {
   return [
     `Edit this image with only this change: ${instruction}.`,
-    "Keep everything else the same: the dog's appearance, pose and position, the composition, colors and lighting.",
-    "The image will be center-cropped to a 4:5 portrait, so keep the dog inside the middle of the frame.",
-    "Keep the bottom 30% of the image calm and uncluttered so text can be added later.",
-    "Do not add any text, letters, numbers, logos or watermarks.",
+    "Keep everything else the same: the dog's appearance, pose and position, the framing, colors, lighting and art style.",
+    KEEP_ORIGINAL,
   ].join(" ");
 }
 
@@ -93,11 +101,8 @@ export function buildRevisionPrompt(instruction: string): string {
 export function buildConceptPrompt(concept: string): string {
   return [
     "Edit this photo into a social media notice image for a dog cafe.",
-    "Keep the dog in the photo exactly as it is: same breed, face, fur color, markings and body shape. Do not replace it with a different dog.",
     `Apply this concept requested by the cafe owner (written in Korean): ${concept || "밝고 깔끔한 애견카페 분위기"}.`,
-    "Photo-realistic, warm and inviting lighting.",
-    "The image will be center-cropped to a 4:5 portrait, so keep the dog fully inside the middle of the frame with space above its head.",
-    "Keep the bottom 30% of the image calm and uncluttered so text can be added later.",
-    "Do not add any text, letters, numbers, logos or watermarks, even if the request mentions notice text.",
+    "Follow the art style the concept asks for (for example cartoon or illustration). If no style is mentioned, keep it photo-realistic with warm, inviting lighting.",
+    KEEP_ORIGINAL,
   ].join(" ");
 }
