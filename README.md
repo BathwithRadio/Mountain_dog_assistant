@@ -1,54 +1,209 @@
-# 애견카페 AI 비서: 공지 이미지 생성
+# 마운틴독 비서: 애견카페 AI 공지 에이전트
 
-강아지 사진을 올리면 ChatGPT 이미지 모델(OpenAI API)이 기념일 분위기 이미지로 바꾸고, 한글 제목·부제를 코드로 얹어 R2에 저장합니다.
+컴퓨터에 익숙하지 않은 부모님이 운영하는 애견카페를 위해 만든 **카카오톡 AI 비서**입니다.
+카톡으로 강아지 사진과 원하는 컨셉을 보내면 SNS에 올릴 공지 이미지를 만들어 주고,
+기념일이 다가오면 먼저 "공지를 만들어 두세요"라고 알려 줍니다.
 
-## 구조
+> 직접 써 보기: 카카오톡에서 **마운틴독 비서** 채널을 추가하세요. ([채널 바로가기](http://pf.kakao.com/_QfJxeX))
+> 사용법은 별도의 테스트 매뉴얼에 정리되어 있습니다.
 
-- `src/index.ts`: Hono 서버. `POST /api/notices`(시안 생성), `GET /images/*`(이미지 제공), `GET /`(테스트 화면)
-- `src/occasions.ts`: 기념일별 장면과 프롬프트
-- `src/openai.ts`: OpenAI 이미지 편집 API 호출
-- `src/overlay.ts`: resvg-wasm으로 한글 글자 합성, 인스타 피드 비율(1080×1350, 4:5)로 자르기
-- `src/fonts.ts`: 기본 폰트(Pretendard)와 제목 폰트 불러오기
-- `src/page.ts`: 개발용 업로드 화면
+---
 
-## 로컬 실행
+## 1. 해결하려는 문제
 
+| 문제 | 해결 |
+|---|---|
+| 부모님은 앱 설치나 웹사이트 사용이 어렵다 | 매일 쓰는 **카카오톡** 하나로 모든 기능을 제공 |
+| 기념일 공지 이미지를 매번 디자이너처럼 만들기 어렵다 | 사진 + 말 한마디로 시안 생성, 말로 수정 |
+| AI 이미지 모델은 한글을 자주 틀리게 그린다 | 이미지는 AI가, **한글 글자는 코드가** 정확하게 얹음 |
+| 공지를 만들어야 할 날을 잊는다 | 기념일 3일 전에 **에이전트가 먼저 안내** |
+
+## 2. 주요 기능
+
+### 2-1. 카톡으로 공지 이미지 만들기
+1. 챗봇에 강아지 사진을 보낸다.
+2. 원하는 컨셉을 말로 적고, 이미지에 넣을 문구는 **따옴표 안에** 적는다.
+   - 예) `크리스마스 컨셉으로 산타 모자를 씌우고 배경을 바꿔줘, 공지는 "크리스마스 당일에도 오픈합니다"`
+   - 따옴표를 두 번 쓰면 두 번째는 작은 안내 문구가 된다.
+3. 30초~1분 뒤 시안이 도착한다. 마음에 안 들면 말로 고친다. (예: "모자를 초록색으로")
+4. "좋아요"를 누르면 끝. 이미지를 길게 눌러 저장해 인스타·네이버에 올린다.
+
+### 2-2. 기념일 3일 전 안내
+- 매일 오전 9시, 3일 뒤가 기념일이면 부모님 카톡 **나와의 채팅**으로 안내와 예시 문장을 보낸다.
+- 안내 메시지의 "챗봇 열기" 버튼으로 바로 공지를 만들 수 있다.
+
+## 3. 에이전트 구성
+
+이 프로젝트에는 **역할이 다른 AI 두 가지**가 함께 일합니다.
+
+| 역할 | 담당 | 하는 일 |
+|---|---|---|
+| 이미지 생성 모델 | OpenAI `gpt-image-2` | 강아지 사진을 컨셉에 맞게 편집 (구도·강아지 생김새 유지) |
+| **디자인 에이전트** | OpenAI `gpt-5-mini` + 도구 | 생성된 이미지를 **직접 보고** 글자 위치·색·폰트를 판단 |
+| **기념일 안내 에이전트** | OpenAI `gpt-5-mini` + 도구 | 기록을 조회해 **안내할지 판단**하고 안내 문장을 써서 발송 |
+
+### 3-1. 디자인 에이전트 (`src/designer.ts`)
+"생성 모델은 만들고, 에이전트는 보고 판단해 다듬는다"는 구조입니다.
+
+```mermaid
+flowchart LR
+  A[글자 없는 배경 이미지] --> B[서버가 후보 3장 렌더링<br/>아래·흰글씨 / 아래·어두운글씨 / 위·흰글씨]
+  B --> C{디자인 에이전트<br/>후보 이미지를 보고 판단}
+  C -->|choose_design 도구<br/>후보 + 폰트 + 이유| D[선택한 디자인으로<br/>완성본 렌더링]
+  D --> E[(R2 저장<br/>design-n.json에 판단 이유 기록)]
+```
+
+- 판단 기준: 글자가 강아지 얼굴·몸을 가리지 않는가, 배경과 대비가 충분한가, 컨셉 분위기에 맞는 폰트인가
+- 제목 폰트: 둥근 폰트(배민 주아) / 굵은 폰트(배민 도현) 중 선택
+- 판단 이유(`reason`)는 R2의 `notices/{id}/design-{n}.json`에 남아 나중에 확인할 수 있다.
+- 실패하거나 시간이 초과되면 기본 디자인으로 대신해 공지 생성은 항상 성공한다.
+
+### 3-2. 기념일 안내 에이전트 (`src/reminder.ts`)
+날짜 계산은 코드가 정확하게, 판단과 문장은 에이전트가 맡습니다.
+
+```mermaid
+flowchart TD
+  A[매일 09:00 KST 크론] --> B[코드: 정확히 3일 뒤 기념일 계산<br/>holidays.ts + 공휴일 API]
+  B -->|없음| Z[종료, 에이전트 호출 안 함]
+  B -->|있음| C{안내 에이전트}
+  C -->|get_reminder_history| C
+  C -->|get_recent_notices| C
+  C -->|send_reminder| D[카카오 나에게 보내기]
+  C -->|finish| E[종료]
+  D --> F[(R2 reminders/ 기록<br/>중복 발송 방지)]
+```
+
+| 도구 | 설명 |
+|---|---|
+| `get_reminder_history` | 올해 이미 보낸 안내 목록 |
+| `get_recent_notices` | 최근 두 달간 만든 공지(컨셉·제목) |
+| `send_reminder` | 안내 문장을 카톡으로 발송 (180자 이내, 예시 문장 포함) |
+| `finish` | 판단 요약을 남기고 종료 |
+
+- 기념일 분류(`src/holidays.ts`)
+  - **꼭 안내(must)**: 신정, 어린이날, 크리스마스, 연말, 설날·추석 등 공휴일. 에이전트가 빠뜨리면 코드가 기본 문장으로 대신 보낸다.
+  - **에이전트 판단(judge)**: 국제 강아지의 날(3/23), 반려동물의 날(4/11), 세계 개의 날(8/26), 세계 동물의 날(10/4), 할로윈, 개의 날(11/1)
+- 사실(영업시간·이벤트)을 지어내지 않도록 지시하고, 사장님만 아는 내용은 "OO시"로 비워 둔다.
+
+## 4. 전체 구조
+
+```mermaid
+flowchart LR
+  U[부모님 카카오톡] -->|사진·컨셉| K[카카오 오픈빌더<br/>폴백 블록 + 스킬]
+  K -->|POST /kakao/skill| W[Cloudflare Worker<br/>Hono]
+  W -->|즉시 응답: 만들고 있어요| K
+  W -->|작업 등록| Q[Cloudflare Queues]
+  Q --> J[큐 소비자]
+  J --> O[OpenAI 이미지 편집]
+  J --> DA[디자인 에이전트]
+  J --> R[(R2 저장소)]
+  J -->|콜백으로 결과 전송| K
+  CR[크론 09:00] --> RA[기념일 안내 에이전트]
+  RA -->|나에게 보내기 API| U
+```
+
+- **콜백 + 큐**: 카카오 스킬은 5초 안에 답해야 하므로 먼저 "만들고 있어요"라고 답하고, 실제 작업은 큐 소비자가 처리한 뒤 콜백으로 결과를 보낸다(콜백 한도 1분).
+- **한글 글자 합성**: resvg-wasm으로 SVG를 렌더링해 정확한 한글을 얹고 인스타 피드 비율(1080×1350, 4:5)로 자른다.
+- **저장소(R2)**: 원본·배경·완성 이미지, 사용자 대화 상태, 카카오 토큰, 안내 기록
+
+### 기술 스택
+Cloudflare Workers · Hono · Cloudflare Queues · R2 · Cron Triggers · resvg-wasm · OpenAI Images API / Responses API · 카카오 i 오픈빌더 · 카카오 로그인 / 나에게 보내기 API
+
+### 파일 구조
+| 파일 | 역할 |
+|---|---|
+| `src/index.ts` | 라우팅, 크론·큐 핸들러 연결 |
+| `src/kakao.ts` | 카카오 스킬: 대화 흐름, 상태 관리, 큐 등록·처리, 테스트 사용량 제한 |
+| `src/concept.ts` | 메시지를 컨셉과 따옴표 속 공지 문구로 분리 |
+| `src/notices.ts` | 공지 생성·수정 (이미지 생성 → 디자인 에이전트 → 저장) |
+| `src/openai.ts` | OpenAI 이미지 편집 API 호출 |
+| `src/occasions.ts` | 이미지 프롬프트 (원본 구도 유지 규칙 포함) |
+| `src/designer.ts` | 디자인 에이전트 |
+| `src/overlay.ts` | 한글 글자 합성과 4:5 자르기 |
+| `src/fonts.ts` | 폰트 불러오기 (Pretendard, R2의 제목 폰트) |
+| `src/reminder.ts` | 기념일 안내 에이전트 |
+| `src/holidays.ts` | 기념일 목록 (이 파일만 고치면 날짜 추가·삭제) |
+| `src/kakaoMemo.ts` | 카카오 로그인 연결, 토큰 갱신, 나에게 보내기 |
+| `src/page.ts` | 개발용 웹 테스트 화면 |
+
+## 5. 개선 과정
+
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| AI가 한글을 엉터리로 그림 | 이미지 모델의 한글 렌더링 한계 | 이미지에는 글자를 넣지 않고 코드로 합성 |
+| 카톡에서 이미지가 가끔 안 옴 | `waitUntil`의 30초 제한에 작업이 끊김 | Cloudflare Queues로 옮겨 콜백 한도(1분)까지 사용 |
+| 큐 소비자가 CPU 한도 초과 | 글자 합성(렌더링)이 CPU를 많이 씀 | Workers Paid + `cpu_ms` 상향, 미리보기는 작게 렌더링 |
+| 디자인 에이전트가 늘 기본 폰트만 선택 | "추천 폰트: basic" 입력과 치우친 지시문 | 추천값 제거, 폰트 선택 기준을 지시문에 명시, 선택지를 두 폰트로 제한 |
+| 디자인 에이전트 호출이 느림 | "그려 보고 → 다시 확인" 2회 호출 | 후보 3장을 미리 그려 한 번에 비교·선택 |
+| 얼굴 사진인데 몸 전체를 지어냄 | "전신이 가운데 오게", "아래 30% 비우기", 세로 크기 고정 | 원본 구도 유지 규칙 추가, 출력 크기 `auto` |
+| 안내 문장이 사실을 지어냄 ("간식 제공") | 지시문에 금지 규칙 없음 | 사실 지어내기 금지, 사장님만 아는 내용은 "OO시"로 비우기 |
+
+## 6. 직접 배포하기
+
+### 준비물
+- Cloudflare 계정 (Workers **Paid** 플랜: Queues 소비자의 CPU 시간 때문에 필요)
+- OpenAI API 키
+- 카카오톡 채널 + 카카오 i 오픈빌더 챗봇
+- (기념일 안내) Kakao Developers 앱
+- (선택) 공공데이터포털 "한국천문연구원 특일 정보" API 키
+
+### 설치와 로컬 실행
 ```bash
 npm install
-cp .dev.vars.example .dev.vars   # OpenAI API 키와 관리자 토큰 입력
-npm run dev                      # http://localhost:8787
+cp .dev.vars.example .dev.vars   # 값 채우기
+npm run dev                      # http://localhost:8787 (웹 테스트 화면)
 ```
 
-"AI 없이 원본 사진에 글자만 넣기"를 체크하면 OpenAI 키 없이도 글자 합성을 시험할 수 있습니다.
-
-## 제목 폰트 추가
-
-기념일마다 제목 폰트 분위기가 정해져 있습니다(`src/occasions.ts`의 `titleFont`).
-
-| 이름 | 쓰는 곳 | 예시 폰트 |
-|---|---|---|
-| `rounded` | 크리스마스, 할로윈, 새해 | 카페24 써라운드, 배민 주아체 |
-| `bold` | 설날, 추석, 일반 공지 | G마켓 산스 Bold, 배민 도현체 |
-
-폰트는 **공식 배포처**에서 TTF나 OTF로 받아 R2의 `fonts/` 아래에 확장자 없이 올립니다. 올리지 않은 폰트는 기본 폰트(Pretendard)로 대신합니다.
-
-```bash
-# 로컬 개발용
-npx wrangler r2 object put dog-cafe-assistant/fonts/rounded --file ./fonts/둥근폰트.ttf --local
-# 배포용
-npx wrangler r2 object put dog-cafe-assistant/fonts/rounded --file ./fonts/둥근폰트.ttf --remote
-```
-
-`fonts/` 폴더는 `.gitignore`에 들어 있어 저장소에 올라가지 않고, `/images/` 주소로도 공개되지 않습니다(재배포 금지 라이선스 대비).
-
-## 배포
-
+### Cloudflare 리소스와 secret
 ```bash
 npx wrangler r2 bucket create dog-cafe-assistant
+npx wrangler queues create dog-cafe-jobs
 npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put ADMIN_TOKEN
+npx wrangler secret put ADMIN_TOKEN              # 웹 테스트 화면·관리 API용 (긴 무작위 값 권장)
+npx wrangler secret put KAKAO_SKILL_SECRET       # 오픈빌더 스킬 헤더 X-Skill-Secret과 같은 값
+npx wrangler secret put KAKAO_ALLOWED_USER_IDS   # 제한 없이 쓸 사용자 ID, 쉼표로 구분
+npx wrangler secret put KAKAO_REST_API_KEY       # 기념일 안내용
+npx wrangler secret put KAKAO_CLIENT_SECRET      # 카카오 앱에서 클라이언트 시크릿을 켠 경우
+npx wrangler secret put REMINDER_INVITE_CODE     # 기념일 안내 연결 링크의 초대 코드
+npx wrangler secret put SPCDE_API_KEY            # (선택) 설날·추석 등 공휴일
 npm run deploy
 ```
 
-`wrangler.jsonc`의 `STORE_NAME`에 가게 이름을 넣으면 이미지 맨 아래에 표시됩니다.
-# Mountain_dog_assistant
+### 주요 설정 (`wrangler.jsonc`의 `vars`)
+| 이름 | 설명 |
+|---|---|
+| `OPENAI_IMAGE_MODEL` | 이미지 편집 모델 (`gpt-image-2`) |
+| `OPENAI_DESIGN_MODEL` | 디자인·안내 에이전트 모델 (`gpt-5-mini`) |
+| `STORE_NAME` | 이미지 하단에 표시할 가게 이름 (비우면 표시 안 함) |
+| `PUBLIC_ORIGIN` | 이 Worker 주소 (카카오 로그인 Redirect URI, 메시지 링크) |
+| `KAKAO_CHANNEL_CHAT_URL` | 안내 메시지 "챗봇 열기" 버튼이 여는 채널 채팅방 |
+| `KAKAO_OPEN_TEST` | `"true"`면 허용 목록에 없는 사람도 하루 제한 안에서 사용 (심사·테스트용) |
+| `KAKAO_TEST_DAILY_LIMIT` | 테스트 사용자 1명의 하루 생성·수정 횟수 |
+| `REMINDER_DRY_RUN` | `"true"`면 안내를 실제로 보내지 않고 로그만 남김 |
+
+### 카카오 설정 요약
+- **오픈빌더**: 폴백 블록에 스킬 연결(`https://<worker>/kakao/skill`, 헤더 `X-Skill-Secret`), 스킬데이터 사용, **Callback 사용**(콜백 대기 메시지에 `{{#webhook.text}}`를 넣으면 서버가 보낸 안내와 테스트 사용 횟수가 표시됨), 운영 채널 연결 후 배포
+- **Kakao Developers**: 카카오 로그인 ON, REST API 키의 리다이렉트 URI에 `https://<worker>/kakao/oauth/callback`, 동의항목 "카카오톡 메시지 전송" 선택 동의, Web 사이트 도메인 등록
+- 부모님 기념일 안내 연결: `https://<worker>/kakao/oauth/start?invite=<초대코드>`를 부모님 휴대폰에서 열기
+
+### 제목 폰트
+공식 배포처에서 받은 TTF/OTF를 R2에 확장자 없이 올립니다. 폰트 파일은 저장소에 올리지 않고(`.gitignore`), 외부에도 공개되지 않습니다.
+```bash
+npx wrangler r2 object put dog-cafe-assistant/fonts/rounded --file ./fonts/BMJUA_otf.otf --remote
+npx wrangler r2 object put dog-cafe-assistant/fonts/bold --file ./fonts/BMDOHYEON_otf.otf --remote
+```
+
+### 관리용 API
+| 경로 | 설명 |
+|---|---|
+| `GET /` | 웹 테스트 화면 (관리자 토큰 필요) |
+| `POST /api/reminders/run` | 기념일 안내 에이전트 즉시 실행. `today=YYYY-MM-DD`로 날짜 가정, `dryRun=on/off` |
+| `npx wrangler tail --format pretty` | 실시간 로그 (`designer`, `job done`, `reminder result` 등) |
+
+## 7. 비용과 한계
+- 비용은 대부분 OpenAI 이미지 생성(시안 1장당)에서 나옵니다. 품질은 비용·속도를 위해 `low`로 설정되어 있습니다.
+- 디자인·안내 에이전트는 작은 모델(`gpt-5-mini`)과 저해상도 이미지 입력을 써서 비용이 작습니다.
+- 카톡 콜백 한도가 1분이라 이미지 생성이 길어지면 결과가 오지 않을 수 있습니다.
+- 카톡 "원본 전송"(HEIC) 사진은 지원하지 않습니다. 일반 전송으로 보내야 합니다.
+- 기념일 안내는 카카오 "나에게 보내기"를 쓰므로 받는 사람이 한 번 카카오 로그인으로 연결해야 합니다.
+  (비즈니스 인증 후에는 챗봇 이벤트 API로 챗봇 채팅방에 직접 보내도록 바꿀 수 있습니다.)

@@ -1,0 +1,11 @@
+# 로컬 개발용 secret. 이 파일을 .dev.vars로 복사해 값을 채운다. (.dev.vars는 git에 올라가지 않는다)
+OPENAI_API_KEY=
+ADMIN_TOKEN=
+# 카카오 스킬을 로컬에서 시험할 때
+KAKAO_SKILL_SECRET=
+KAKAO_ALLOWED_USER_IDS=
+# 기념일 안내 (선택)
+KAKAO_REST_API_KEY=
+KAKAO_CLIENT_SECRET=
+REMINDER_INVITE_CODE=
+SPCDE_API_KEY=
