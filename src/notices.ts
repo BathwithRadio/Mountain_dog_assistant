@@ -16,6 +16,8 @@ export type Env = {
   FONT_URL: string;
   KAKAO_SKILL_SECRET: string;
   KAKAO_ALLOWED_USER_IDS: string;
+  KAKAO_OPEN_TEST: string; // "true"면 허용 목록에 없는 사람도 하루 횟수 제한 안에서 쓸 수 있다 (심사·테스트용)
+  KAKAO_TEST_DAILY_LIMIT: string; // 테스트 사용자 1명이 하루에 만들거나 고칠 수 있는 횟수
   OPENAI_DESIGN_MODEL: string;
   JOBS: Queue<KakaoJob>;
   // 기념일 안내 (카카오 나에게 보내기)

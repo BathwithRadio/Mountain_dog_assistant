@@ -109,6 +109,22 @@ async function saveState(env: Env, userId: string, state: UserState) {
   });
 }
 
+// ---------- 테스트 사용자 하루 횟수 (R2) ----------
+
+const kstDate = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const usageKey = (userId: string) => `kakao/usage/${kstDate()}/${userId}.json`;
+
+async function usageToday(env: Env, userId: string): Promise<number> {
+  const object = await env.BUCKET.get(usageKey(userId));
+  return object ? ((await object.json()) as { count: number }).count : 0;
+}
+
+async function addUsage(env: Env, userId: string, count: number) {
+  await env.BUCKET.put(usageKey(userId), JSON.stringify({ count }), {
+    httpMetadata: { contentType: "application/json" },
+  });
+}
+
 // ---------- 사진 ----------
 
 // 카톡으로 보낸 사진은 utterance에 카카오 CDN 주소로 들어온다.
@@ -267,12 +283,16 @@ kakao.post("/skill", async (c) => {
   const callbackUrl = body.userRequest?.callbackUrl;
   const origin = new URL(c.req.url).origin;
 
-  // 허용 목록이 비어 있으면 아무도 쓸 수 없다. (등록을 잊어도 비용이 새지 않게)
+  // 허용 목록(부모님 등)은 제한 없이 쓴다. 목록이 비어 있으면 아무도 쓸 수 없다. (등록을 잊어도 비용이 새지 않게)
+  // 테스트 모드가 켜져 있으면 목록에 없는 사람도 하루 횟수 제한 안에서 쓸 수 있다.
   const allowed = (c.env.KAKAO_ALLOWED_USER_IDS ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  if (!/^\w+$/.test(userId) || !allowed.includes(userId)) {
+  const isOwner = allowed.includes(userId);
+  const openTest = c.env.KAKAO_OPEN_TEST === "true";
+  const dailyLimit = Math.max(Number(c.env.KAKAO_TEST_DAILY_LIMIT) || 5, 1);
+  if (!/^\w+$/.test(userId) || (!isOwner && !openTest)) {
     return c.json(
       textResponse(
         `등록되지 않은 사용자예요. 관리자에게 이 ID를 알려 주세요.\n${userId}`,
@@ -282,13 +302,31 @@ kakao.post("/skill", async (c) => {
 
   const state = await loadState(c.env, userId);
 
+  // 이미지를 만들거나 고치는 작업을 큐에 넣는다. 테스트 사용자는 하루 횟수를 센다.
+  const startJob = async (waitingText: string, makeJob: (callbackUrl: string) => KakaoJob) => {
+    if (!isOwner && callbackUrl) {
+      const used = await usageToday(c.env, userId);
+      if (used >= dailyLimit) {
+        return c.json(
+          textResponse(
+            `오늘 테스트 횟수(${dailyLimit}번)를 다 썼어요. 내일 다시 시도해 주세요.`,
+            quickReplies(["좋아요"]),
+          ),
+        );
+      }
+      await addUsage(c.env, userId, used + 1);
+      waitingText += `\n(오늘 테스트 ${used + 1}/${dailyLimit}번째)`;
+    }
+    return enqueueJob(c, callbackUrl, waitingText, makeJob);
+  };
+
   // 컨셉과 문구로 시안을 만든다. 오래 걸리므로 콜백으로 결과를 보낸다.
   const makeNotice = (
     photoUrl: string,
     concept: string,
     text: { title: string; subtitle?: string },
   ) =>
-    enqueueJob(c, callbackUrl, "만들고 있어요. 30초 정도 걸려요.", (cb) => ({
+    startJob("만들고 있어요. 30초~1분 정도 걸려요.", (cb) => ({
       kind: "create",
       userId,
       callbackUrl: cb,
@@ -343,7 +381,7 @@ kakao.post("/skill", async (c) => {
   // 시안이 있으면 나머지 말은 수정 요청으로 본다.
   if (state.notice && utterance) {
     const notice = state.notice;
-    return enqueueJob(c, callbackUrl, "고치고 있어요. 20초 정도 걸려요.", (cb) => ({
+    return startJob("고치고 있어요. 30초~1분 정도 걸려요.", (cb) => ({
       kind: "revise",
       userId,
       callbackUrl: cb,
