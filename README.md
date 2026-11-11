@@ -5,11 +5,13 @@
 기념일이 다가오면 먼저 "공지를 만들어 두세요"라고 알려 줍니다.
 
 > 직접 써 보기: 카카오톡에서 **마운틴독 비서** 채널을 추가하세요. ([채널 바로가기](http://pf.kakao.com/_QfJxeX))
-> 사용법은 아래 [테스트 가이드](#테스트-가이드)를 따라 하세요.
+> 사용법: **[테스트 가이드 페이지 (휴대폰용)](https://dog-cafe-assistant.thigma1201.workers.dev/guide)** 또는 아래 [테스트 가이드](#테스트-가이드)
 
 ## 테스트 가이드
 
 누구나 카카오톡만 있으면 써 볼 수 있습니다. 비용 때문에 **1인당 하루 5번**(만들기·고치기 합계)까지 쓸 수 있습니다.
+
+휴대폰에서는 QR 코드와 예시 문장 복사 버튼이 있는 [테스트 가이드 페이지](https://dog-cafe-assistant.thigma1201.workers.dev/guide)가 더 편합니다.
 
 ### 따라 하기
 1. **채널 추가**: 카카오톡에서 `마운틴독 비서`를 검색하거나 [채널 바로가기](http://pf.kakao.com/_QfJxeX)를 연다.
@@ -168,6 +170,7 @@ Cloudflare Workers · Hono · Cloudflare Queues · R2 · Cron Triggers · resvg-
 | `src/holidays.ts` | 기념일 목록 (이 파일만 고치면 날짜 추가·삭제) |
 | `src/kakaoMemo.ts` | 카카오 로그인 연결, 토큰 갱신, 나에게 보내기 |
 | `src/page.ts` | 개발용 웹 테스트 화면 |
+| `src/guide.ts` | 테스터용 사용 안내 페이지 (`/guide`) |
 
 ## 5. 개선 과정
 
@@ -240,6 +243,7 @@ npx wrangler r2 object put dog-cafe-assistant/fonts/bold --file ./fonts/BMDOHYEO
 | 경로 | 설명 |
 |---|---|
 | `GET /` | 웹 테스트 화면 (관리자 토큰 필요) |
+| `GET /guide` | 테스터용 사용 안내 페이지 (누구나 열람, `src/guide.ts`) |
 | `POST /api/reminders/run` | 기념일 안내 에이전트 즉시 실행. `today=YYYY-MM-DD`로 날짜 가정, `dryRun=on/off` |
 | `npx wrangler tail --format pretty` | 실시간 로그 (`designer`, `job done`, `reminder result` 등) |
 

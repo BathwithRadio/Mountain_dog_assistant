@@ -3,6 +3,7 @@ import { createNotice, type Env, type NoticeMeta, NoticeNotFoundError, reviseNot
 import { OCCASIONS } from "./occasions";
 import { MAX_SUBTITLE_LINES, MAX_TITLE_LINES, splitLines } from "./overlay";
 import { uploadPage } from "./page";
+import { GUIDE_HTML } from "./guide";
 import { handleKakaoJobs, kakao, type KakaoJob } from "./kakao";
 import { kakaoOAuth } from "./kakaoMemo";
 import { runReminderAgent } from "./reminder";
@@ -23,6 +24,9 @@ function checkToken(env: Env, token: unknown): { error: string; status: 401 | 50
 }
 
 app.get("/", (c) => c.html(uploadPage(OCCASIONS)));
+
+// 테스터용 사용 안내 페이지. 누구나 볼 수 있다.
+app.get("/guide", (c) => c.html(GUIDE_HTML));
 
 // 사진 한 장으로 공지 시안 1~3장을 만든다.
 app.post("/api/notices", async (c) => {
