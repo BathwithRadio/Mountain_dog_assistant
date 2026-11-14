@@ -1,7 +1,8 @@
 // 공지 시안 만들기와 고치기. 웹 테스트 화면과 카카오 챗봇이 함께 쓴다.
 
 import { loadFont, type LoadedFont } from "./fonts";
-import { buildConceptPrompt, buildPrompt, buildRevisionPrompt, OCCASIONS } from "./occasions";
+import { buildConceptPrompt, buildRevisionPrompt } from "./prompts";
+import { toVisualConcept } from "./visualConcept";
 import { generateImage } from "./openai";
 import { designNotice, type Design, type TitleFont } from "./designer";
 import { DEFAULT_LAYOUT, overlayText } from "./overlay";
@@ -31,16 +32,17 @@ export type Env = {
 };
 
 // 시안을 다시 그리거나 문구를 다시 얹을 때 필요한 정보. notices/{id}/meta.json에 저장한다.
-// occasion은 웹 테스트 화면의 기념일 선택, concept는 카톡에서 말로 적은 컨셉. 둘 중 하나가 있다.
+// concept: 사장님이 말로 적은 컨셉, visualConcept: 그중 시각적 요청만 뽑은 영어 설명(이미지 모델에 실제로 넘긴 값)
 // title이 빈 문자열이면 글자 없는 이미지를 만든다.
-export type NoticeMeta = { occasion?: string; concept?: string; title: string; subtitle?: string };
+// occasion은 예전에 기념일 목록으로 만든 기록에만 남아 있다. (지금은 쓰지 않는다)
+export type NoticeMeta = { concept?: string; visualConcept?: string; occasion?: string; title: string; subtitle?: string };
 
 export type Variant = { url: string; base: string };
 
 // 디자인 에이전트가 고를 수 있도록 제목 폰트 후보를 모두 불러온다.
 type FontSet = { fonts: Record<TitleFont, LoadedFont>; suggested: TitleFont };
 
-async function loadFonts(env: Env, occasionKey: string | undefined): Promise<FontSet & { notes: string[] }> {
+async function loadFonts(env: Env): Promise<FontSet & { notes: string[] }> {
   const basic = await loadFont("basic", env);
   if (!basic) throw new Error("기본 폰트를 불러오지 못했습니다.");
   const rounded = await loadFont("rounded", env);
@@ -51,8 +53,8 @@ async function loadFonts(env: Env, occasionKey: string | undefined): Promise<Fon
   ];
   return {
     fonts: { basic, rounded: rounded ?? basic, bold: bold ?? basic },
-    // 제목에는 기본 폰트를 쓰지 않는다. 기념일 정보가 없으면(카톡 컨셉) 둥근 폰트를 기본으로 한다.
-    suggested: (occasionKey && OCCASIONS[occasionKey]?.titleFont) || "rounded",
+    // 제목 폰트는 디자인 에이전트가 고른다. 에이전트가 실패했을 때만 둥근 폰트를 쓴다.
+    suggested: "rounded",
     notes,
   };
 }
@@ -106,15 +108,20 @@ export async function createNotice(
     photo: Uint8Array;
     photoMimeType: string;
     meta: NoticeMeta;
-    extra?: string;
     count: number;
     skipAi: boolean;
   },
 ): Promise<{ id: string; images: Variant[]; errors: string[]; notes: string[] }> {
-  const occasion = input.meta.occasion ? OCCASIONS[input.meta.occasion] : undefined;
-  if (!occasion && input.meta.concept === undefined) throw new Error("알 수 없는 기념일입니다.");
+  const { notes, ...fontSet } = await loadFonts(env);
+  // 컨셉은 이미지 모델에 넘기기 전에 시각적 요청만 남긴다. (지시 문장을 그림 글씨로 그리지 않게)
+  if (!input.skipAi && input.meta.visualConcept === undefined) {
+    input.meta.visualConcept = await toVisualConcept({
+      apiKey: env.OPENAI_API_KEY,
+      model: env.OPENAI_DESIGN_MODEL,
+      message: input.meta.concept ?? "",
+    });
+  }
 
-  const { notes, ...fontSet } = await loadFonts(env, input.meta.occasion);
   const id = `${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
 
   await env.BUCKET.put(`notices/${id}/original`, input.photo, {
@@ -134,7 +141,7 @@ export async function createNotice(
             model: env.OPENAI_IMAGE_MODEL,
             photo: input.photo,
             photoMimeType: input.photoMimeType,
-            prompt: occasion ? buildPrompt(occasion, i, input.extra) : buildConceptPrompt(input.meta.concept ?? ""),
+            prompt: buildConceptPrompt(input.meta.visualConcept ?? ""),
           });
       return saveVariant(env, origin, id, String(i + 1), base, input.meta, fontSet);
     }),
@@ -171,7 +178,7 @@ export async function reviseNotice(
     photoMimeType: baseObject.httpMetadata?.contentType ?? "image/png",
     prompt: buildRevisionPrompt(instruction),
   });
-  const { notes, ...fontSet } = await loadFonts(env, meta.occasion);
+  const { notes, ...fontSet } = await loadFonts(env);
   const name = `${baseName.split("-r")[0]}-r${crypto.randomUUID().slice(0, 6)}`;
   const image = await saveVariant(env, origin, id, name, revised, meta, fontSet);
   return { image, notes };

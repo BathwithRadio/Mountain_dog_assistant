@@ -1,11 +1,6 @@
-import type { Occasion } from "./occasions";
-
 // 개발·테스트용 업로드 화면. 부모님용 화면은 카카오톡 챗봇이 맡는다.
-export function uploadPage(occasions: Record<string, Occasion>): string {
-  const options = Object.entries(occasions)
-    .map(([key, o]) => `<option value="${key}">${o.label}</option>`)
-    .join("");
-
+// 카톡 챗봇과 같은 흐름(컨셉을 말로 적기 → 시각적 요청만 뽑기 → 이미지 생성 → 디자인 에이전트)을 웹에서 시험한다.
+export function uploadPage(): string {
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -32,10 +27,9 @@ export function uploadPage(occasions: Record<string, Occasion>): string {
 <form id="form" method="post" action="/api/notices" enctype="multipart/form-data">
   <label>관리자 토큰 <input type="password" name="token" required></label>
   <label>강아지 사진 <input type="file" name="photo" accept="image/jpeg,image/png" required></label>
-  <label>기념일 <select name="occasion">${options}</select></label>
-  <label>제목 (비우면 기본 문구, 최대 2줄) <textarea name="title" rows="2"></textarea></label>
+  <label>컨셉 (사진을 어떻게 바꿀지 말로 적기) <textarea name="concept" rows="3" placeholder="크리스마스 컨셉으로 산타 모자를 씌우고 배경을 바꿔줘"></textarea></label>
+  <label>제목 (이미지에 들어갈 글자, 비우면 글자 없이, 최대 2줄) <textarea name="title" rows="2" placeholder="크리스마스 당일에도 오픈합니다"></textarea></label>
   <label>부제 (최대 2줄) <textarea name="subtitle" rows="2" placeholder="12월 24~25일 정상 영업합니다"></textarea></label>
-  <label>추가 요청 (선택) <input name="extra" placeholder="눈 내리는 배경으로"></label>
   <label>시안 개수 <select name="count"><option>1</option><option selected>2</option><option>3</option></select></label>
   <label class="check"><input type="checkbox" name="skipAi"> AI 없이 원본 사진에 글자만 넣기</label>
   <button>만들기</button>

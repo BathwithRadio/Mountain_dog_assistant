@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { createNotice, type Env, type NoticeMeta, NoticeNotFoundError, reviseNotice } from "./notices";
-import { OCCASIONS } from "./occasions";
 import { MAX_SUBTITLE_LINES, MAX_TITLE_LINES, splitLines } from "./overlay";
 import { uploadPage } from "./page";
 import { GUIDE_HTML } from "./guide";
@@ -23,7 +22,7 @@ function checkToken(env: Env, token: unknown): { error: string; status: 401 | 50
   }
 }
 
-app.get("/", (c) => c.html(uploadPage(OCCASIONS)));
+app.get("/", (c) => c.html(uploadPage()));
 
 // 테스터용 사용 안내 페이지. 누구나 볼 수 있다.
 app.get("/guide", (c) => c.html(GUIDE_HTML));
@@ -38,24 +37,20 @@ app.post("/api/notices", async (c) => {
   if (!(photo instanceof File) || !["image/jpeg", "image/png"].includes(photo.type)) {
     return c.json({ error: "JPG 또는 PNG 사진을 올려 주세요." }, 400);
   }
-  const occasion = OCCASIONS[String(form.occasion)];
-  if (!occasion) {
-    return c.json({ error: "알 수 없는 기념일입니다." }, 400);
-  }
-
-  const title = String(form.title || occasion.defaultTitle);
-  const subtitle = form.subtitle ? String(form.subtitle) : undefined;
+  // 카톡과 같은 방식: 컨셉은 말로 적고, 이미지에 넣을 글자(제목·부제)는 따로 받는다. 제목을 비우면 글자 없는 이미지.
+  const concept = String(form.concept ?? "").trim();
+  const title = String(form.title ?? "").trim();
+  const subtitle = form.subtitle ? String(form.subtitle).trim() || undefined : undefined;
   if (splitLines(title).length > MAX_TITLE_LINES || splitLines(subtitle).length > MAX_SUBTITLE_LINES) {
     return c.json({ error: `제목은 ${MAX_TITLE_LINES}줄, 부제는 ${MAX_SUBTITLE_LINES}줄까지 쓸 수 있어요.` }, 400);
   }
   const skipAi = form.skipAi === "on";
-  const meta: NoticeMeta = { occasion: String(form.occasion), title, subtitle };
+  const meta: NoticeMeta = { concept, title, subtitle };
 
   const result = await createNotice(c.env, new URL(c.req.url).origin, {
     photo: new Uint8Array(await photo.arrayBuffer()),
     photoMimeType: photo.type,
     meta,
-    extra: form.extra ? String(form.extra) : undefined,
     count: skipAi ? 1 : Math.min(Math.max(Number(form.count) || 2, 1), MAX_VARIANTS),
     skipAi,
   });
